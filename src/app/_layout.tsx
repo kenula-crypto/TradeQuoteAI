@@ -13,10 +13,12 @@ export default function RootLayout() {
 
   // Listen to Supabase auth state
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) loadUserData(session.user.id);
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        setSession(session);
+        if (session?.user) loadUserData(session.user.id);
+      })
+      .catch(() => setSession(null)); // force loading=false even if Supabase fails
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
