@@ -103,6 +103,10 @@ export default function SettingsScreen() {
   const signOut              = useAuthStore((s) => s.signOut);
   const user                 = useAuthStore((s) => s.user);
 
+  // Use auth store user.id as fallback — it's set immediately on session restore,
+  // while store.userId is set later after loadUserData completes.
+  const effectiveUserId = userId ?? user?.id ?? null;
+
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
   const [billingError,   setBillingError]   = useState<string>('');
 
@@ -119,7 +123,7 @@ export default function SettingsScreen() {
 
   async function handleUpgrade(plan: 'pro' | 'team') {
     setBillingError('');
-    if (!userId) { setBillingError('Not signed in — please sign out and back in.'); return; }
+    if (!effectiveUserId) { setBillingError('Not signed in — please sign out and back in.'); return; }
     if (!user?.email) { setBillingError('No email on account — contact support.'); return; }
 
     const priceId = plan === 'pro'
@@ -135,7 +139,7 @@ export default function SettingsScreen() {
     try {
       const appUrl = Platform.OS === 'web' ? window.location.origin : 'http://localhost:8081';
       const result = await createCheckoutSession({
-        userId,
+        userId: effectiveUserId,
         email: user.email,
         priceId,
         successUrl: appUrl,
@@ -412,12 +416,16 @@ export default function SettingsScreen() {
         {/* Sign Out */}
         <TouchableOpacity
           style={styles.signOutBtn}
-          onPress={() =>
-            Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Sign Out', style: 'destructive', onPress: signOut },
-            ])
-          }>
+          onPress={() => {
+            if (Platform.OS === 'web') {
+              if (window.confirm('Sign out of TradeQuoteAI?')) signOut();
+            } else {
+              Alert.alert('Sign Out', 'Are you sure?', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Sign Out', style: 'destructive', onPress: () => signOut() },
+              ]);
+            }
+          }}>
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
 
