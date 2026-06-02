@@ -41,6 +41,12 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   signOut: async () => {
     await supabase.auth.signOut();
+    // Explicitly clear all Supabase auth keys from localStorage on web
+    if (typeof localStorage !== 'undefined') {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith('sb-'))
+        .forEach((k) => localStorage.removeItem(k));
+    }
     set({ session: null, user: null, loading: false });
   },
 }));

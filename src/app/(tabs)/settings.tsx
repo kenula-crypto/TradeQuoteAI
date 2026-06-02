@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Alert,
   Modal,
@@ -109,6 +109,15 @@ export default function SettingsScreen() {
 
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
   const [billingError,   setBillingError]   = useState<string>('');
+
+  // Auto-refresh billing status when screen loads (catches return from Stripe checkout)
+  useEffect(() => {
+    if (stripeCustomerId) {
+      getBillingStatus(stripeCustomerId)
+        .then((status) => updateBilling({ subscriptionTier: status.tier }))
+        .catch(() => {});
+    }
+  }, [stripeCustomerId]);
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const quotesUsed   = quoteMonth === currentMonth ? quoteCountThisMonth : 0;
