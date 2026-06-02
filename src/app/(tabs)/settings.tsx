@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useStore } from '@/store';
+import { useAuthStore } from '@/store/auth';
 import { Brand } from '@/constants/theme';
 import type { Employee } from '@/types';
 
@@ -90,6 +91,7 @@ export default function SettingsScreen() {
   const addEmployee = useStore((s) => s.addEmployee);
   const updateEmployee = useStore((s) => s.updateEmployee);
   const removeEmployee = useStore((s) => s.removeEmployee);
+  const signOut = useAuthStore((s) => s.signOut);
 
   const [editing, setEditing] = useState<{
     field: string;
@@ -248,6 +250,18 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* Sign Out */}
+        <TouchableOpacity
+          style={styles.signOutBtn}
+          onPress={() =>
+            Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Sign Out', style: 'destructive', onPress: signOut },
+            ])
+          }>
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
+
         <View style={{ height: 32 }} />
       </ScrollView>
 
@@ -381,4 +395,13 @@ const styles = StyleSheet.create({
   },
   editBtnPrimary: { backgroundColor: Brand.orange, borderColor: Brand.orange },
   editBtnText: { fontSize: 13, fontWeight: '600', color: Brand.textSecondary },
+  signOutBtn: {
+    marginTop: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: Brand.red,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  signOutText: { fontSize: 14, fontWeight: '600', color: Brand.red },
 });
