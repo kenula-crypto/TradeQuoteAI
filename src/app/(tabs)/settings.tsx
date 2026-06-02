@@ -427,16 +427,9 @@ export default function SettingsScreen() {
         <TouchableOpacity
           style={styles.signOutBtn}
           onPress={async () => {
+            await signOut();
             if (Platform.OS === 'web') {
-              if (window.confirm('Sign out of TradeQuoteAI?')) {
-                await signOut();
-                window.location.replace('/');
-              }
-            } else {
-              Alert.alert('Sign Out', 'Are you sure?', [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Sign Out', style: 'destructive', onPress: () => signOut() },
-              ]);
+              window.location.replace('/');
             }
           }}>
           <Text style={styles.signOutText}>Sign Out</Text>
