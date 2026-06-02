@@ -3,6 +3,13 @@ import type { Quote, Customer, UserSettings } from '@/types';
 
 // ── Profile ────────────────────────────────────────────────────────────────
 
+export interface BillingInfo {
+  subscriptionTier:    'free' | 'pro' | 'team';
+  stripeCustomerId:    string | null;
+  quoteCountThisMonth: number;
+  quoteMonth:          string;
+}
+
 export async function loadProfile(userId: string) {
   const { data } = await supabase
     .from('profiles')
@@ -23,6 +30,12 @@ export async function loadProfile(userId: string) {
       employees:     data.employees      ?? [],
     } as UserSettings,
     quoteCounter: (data.quote_counter ?? 41) as number,
+    billing: {
+      subscriptionTier:    (data.subscription_tier    ?? 'free') as BillingInfo['subscriptionTier'],
+      stripeCustomerId:    (data.stripe_customer_id   ?? null),
+      quoteCountThisMonth: (data.quote_count_this_month ?? 0) as number,
+      quoteMonth:          (data.quote_month          ?? '') as string,
+    } as BillingInfo,
   };
 }
 
@@ -44,6 +57,16 @@ export async function saveProfile(
     employees:      settings.employees,
     quote_counter:  quoteCounter,
   });
+}
+
+export async function saveBilling(userId: string, billing: Partial<BillingInfo>) {
+  const update: Record<string, unknown> = {};
+  if (billing.subscriptionTier    !== undefined) update.subscription_tier      = billing.subscriptionTier;
+  if (billing.stripeCustomerId    !== undefined) update.stripe_customer_id     = billing.stripeCustomerId;
+  if (billing.quoteCountThisMonth !== undefined) update.quote_count_this_month = billing.quoteCountThisMonth;
+  if (billing.quoteMonth          !== undefined) update.quote_month            = billing.quoteMonth;
+  if (Object.keys(update).length === 0) return;
+  await supabase.from('profiles').update(update).eq('id', userId);
 }
 
 // ── Quotes ─────────────────────────────────────────────────────────────────

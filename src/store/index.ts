@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import type { Quote, Customer, UserSettings, Employee } from '@/types';
 import {
-  loadProfile, saveProfile,
+  loadProfile, saveProfile, saveBilling,
   loadQuotes, upsertQuote, deleteQuoteFromDb,
   loadCustomers, upsertCustomer,
+  type BillingInfo,
 } from '@/lib/db';
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -26,6 +27,12 @@ interface AppState {
   quoteCounter: number;
   dataLoaded:   boolean;
 
+  // Billing
+  subscriptionTier:    BillingInfo['subscriptionTier'];
+  stripeCustomerId:    string | null;
+  quoteCountThisMonth: number;
+  quoteMonth:          string;
+
   // Bootstrap
   loadUserData: (userId: string) => Promise<void>;
   clearData:    () => void;
@@ -45,6 +52,10 @@ interface AppState {
   updateEmployee:  (id: string, updates: Partial<Employee>) => void;
   removeEmployee:  (id: string) => void;
 
+  // Billing
+  updateBilling: (info: Partial<BillingInfo>) => void;
+  incrementQuoteCount: () => void;
+
   nextQuoteNumber: () => string;
 }
 
@@ -55,6 +66,11 @@ export const useStore = create<AppState>()((set, get) => ({
   settings:     DEFAULT_SETTINGS,
   quoteCounter: 41,
   dataLoaded:   false,
+
+  subscriptionTier:    'free',
+  stripeCustomerId:    null,
+  quoteCountThisMonth: 0,
+  quoteMonth:          '',
 
   // ── Bootstrap ────────────────────────────────────────────────
   loadUserData: async (userId) => {
@@ -67,26 +83,58 @@ export const useStore = create<AppState>()((set, get) => ({
     set({
       quotes,
       customers,
-      settings:     profile?.settings     ?? DEFAULT_SETTINGS,
-      quoteCounter: profile?.quoteCounter ?? 41,
+      settings:            profile?.settings            ?? DEFAULT_SETTINGS,
+      quoteCounter:        profile?.quoteCounter        ?? 41,
+      subscriptionTier:    profile?.billing.subscriptionTier    ?? 'free',
+      stripeCustomerId:    profile?.billing.stripeCustomerId    ?? null,
+      quoteCountThisMonth: profile?.billing.quoteCountThisMonth ?? 0,
+      quoteMonth:          profile?.billing.quoteMonth          ?? '',
       dataLoaded:   true,
     });
   },
 
   clearData: () =>
     set({
-      userId:       null,
-      quotes:       [],
-      customers:    [],
-      settings:     DEFAULT_SETTINGS,
-      quoteCounter: 41,
-      dataLoaded:   false,
+      userId:              null,
+      quotes:              [],
+      customers:           [],
+      settings:            DEFAULT_SETTINGS,
+      quoteCounter:        41,
+      dataLoaded:          false,
+      subscriptionTier:    'free',
+      stripeCustomerId:    null,
+      quoteCountThisMonth: 0,
+      quoteMonth:          '',
     }),
+
+  // ── Billing ──────────────────────────────────────────────────
+  updateBilling: (info) => {
+    set((s) => ({
+      subscriptionTier:    info.subscriptionTier    ?? s.subscriptionTier,
+      stripeCustomerId:    info.stripeCustomerId    ?? s.stripeCustomerId,
+      quoteCountThisMonth: info.quoteCountThisMonth ?? s.quoteCountThisMonth,
+      quoteMonth:          info.quoteMonth          ?? s.quoteMonth,
+    }));
+    const userId = get().userId;
+    if (userId) saveBilling(userId, info).catch(console.error);
+  },
+
+  incrementQuoteCount: () => {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const { quoteMonth, quoteCountThisMonth, userId } = get();
+    const newCount = quoteMonth === currentMonth ? quoteCountThisMonth + 1 : 1;
+    set({ quoteCountThisMonth: newCount, quoteMonth: currentMonth });
+    if (userId) {
+      saveBilling(userId, { quoteCountThisMonth: newCount, quoteMonth: currentMonth })
+        .catch(console.error);
+    }
+  },
 
   // ── Quotes ───────────────────────────────────────────────────
   addQuote: (quote) => {
     const newCounter = get().quoteCounter + 1;
     set((s) => ({ quotes: [quote, ...s.quotes], quoteCounter: newCounter }));
+    get().incrementQuoteCount();
     const userId = get().userId;
     if (userId) {
       upsertQuote(quote, userId).catch(console.error);

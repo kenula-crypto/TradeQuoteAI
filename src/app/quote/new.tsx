@@ -34,9 +34,12 @@ function uid() {
 
 
 export default function NewQuoteScreen() {
-  const settings = useStore((s) => s.settings);
-  const addQuote = useStore((s) => s.addQuote);
-  const nextQuoteNumber = useStore((s) => s.nextQuoteNumber);
+  const settings            = useStore((s) => s.settings);
+  const addQuote            = useStore((s) => s.addQuote);
+  const nextQuoteNumber     = useStore((s) => s.nextQuoteNumber);
+  const subscriptionTier    = useStore((s) => s.subscriptionTier);
+  const quoteCountThisMonth = useStore((s) => s.quoteCountThisMonth);
+  const quoteMonth          = useStore((s) => s.quoteMonth);
 
   const [step, setStep] = useState<Step>('details');
   const [title, setTitle] = useState('');
@@ -278,7 +281,27 @@ export default function NewQuoteScreen() {
 
           <TouchableOpacity
             style={[styles.primaryBtn, measurements.length === 0 && styles.primaryBtnDisabled]}
-            onPress={() => measurements.length > 0 ? setStep('processing') : Alert.alert('Add measurements', 'Add at least one area to continue.')}>
+            onPress={() => {
+              if (measurements.length === 0) {
+                Alert.alert('Add measurements', 'Add at least one area to continue.');
+                return;
+              }
+              // Quota check for free tier
+              const currentMonth = new Date().toISOString().slice(0, 7);
+              const used = quoteMonth === currentMonth ? quoteCountThisMonth : 0;
+              if (subscriptionTier === 'free' && used >= 5) {
+                Alert.alert(
+                  'Monthly limit reached',
+                  "You've used all 5 free quotes this month. Upgrade to Pro for unlimited quotes.",
+                  [
+                    { text: 'Not now', style: 'cancel' },
+                    { text: 'Upgrade', onPress: () => router.push('/(tabs)/settings') },
+                  ],
+                );
+                return;
+              }
+              setStep('processing');
+            }}>
             <Text style={styles.primaryBtnText}>Generate Quote →</Text>
           </TouchableOpacity>
         </ScrollView>

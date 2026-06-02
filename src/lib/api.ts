@@ -90,3 +90,31 @@ export async function draftQuoteEmail(
   const response = await api.post<DraftEmailResult>('/quotes/draft-email', payload);
   return response.data;
 }
+
+// ── Billing ───────────────────────────────────────────────────────────────
+
+export async function createCheckoutSession(payload: {
+  userId: string;
+  email: string;
+  priceId: string;
+  successUrl: string;
+  cancelUrl: string;
+}): Promise<{ url: string; customerId: string }> {
+  const response = await api.post('/billing/checkout', payload);
+  return response.data;
+}
+
+export async function createPortalSession(payload: {
+  customerId: string;
+  returnUrl: string;
+}): Promise<{ url: string }> {
+  const response = await api.post('/billing/portal', payload);
+  return response.data;
+}
+
+export async function getBillingStatus(
+  customerId: string,
+): Promise<{ tier: 'free' | 'pro' | 'team'; active: boolean }> {
+  const response = await api.get(`/billing/status?customerId=${customerId}`);
+  return response.data;
+}
