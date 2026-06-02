@@ -110,14 +110,15 @@ export default function SettingsScreen() {
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
   const [billingError,   setBillingError]   = useState<string>('');
 
-  // Auto-refresh billing status when screen loads (catches return from Stripe checkout)
+  // Auto-refresh billing status whenever screen loads (catches return from Stripe checkout)
   useEffect(() => {
-    if (stripeCustomerId) {
-      getBillingStatus(stripeCustomerId)
+    const email = user?.email;
+    if (email) {
+      getBillingStatus(email)
         .then((status) => updateBilling({ subscriptionTier: status.tier }))
         .catch(() => {});
     }
-  }, [stripeCustomerId]);
+  }, [user?.email]);
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const quotesUsed   = quoteMonth === currentMonth ? quoteCountThisMonth : 0;
@@ -184,10 +185,10 @@ export default function SettingsScreen() {
 
   async function handleRefreshPlan() {
     setBillingError('');
-    if (!stripeCustomerId) { setBillingError('No billing account found — upgrade first.'); return; }
+    if (!user?.email) { setBillingError('Not signed in.'); return; }
     setBillingLoading('refresh');
     try {
-      const status = await getBillingStatus(stripeCustomerId);
+      const status = await getBillingStatus(user.email);
       updateBilling({ subscriptionTier: status.tier });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -425,9 +426,12 @@ export default function SettingsScreen() {
         {/* Sign Out */}
         <TouchableOpacity
           style={styles.signOutBtn}
-          onPress={() => {
+          onPress={async () => {
             if (Platform.OS === 'web') {
-              if (window.confirm('Sign out of TradeQuoteAI?')) signOut();
+              if (window.confirm('Sign out of TradeQuoteAI?')) {
+                await signOut();
+                window.location.replace('/');
+              }
             } else {
               Alert.alert('Sign Out', 'Are you sure?', [
                 { text: 'Cancel', style: 'cancel' },

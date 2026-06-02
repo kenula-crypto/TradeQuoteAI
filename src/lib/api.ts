@@ -113,8 +113,8 @@ export async function createPortalSession(payload: {
 }
 
 export async function getBillingStatus(
-  customerId: string,
+  email: string,
 ): Promise<{ tier: 'free' | 'pro' | 'team'; active: boolean }> {
-  const response = await api.get(`/billing/status?customerId=${customerId}`);
+  const response = await api.get(`/billing/status?email=${encodeURIComponent(email)}`);
   return response.data;
 }
