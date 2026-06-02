@@ -104,6 +104,7 @@ export default function SettingsScreen() {
   const user                 = useAuthStore((s) => s.user);
 
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
+  const [billingError,   setBillingError]   = useState<string>('');
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const quotesUsed   = quoteMonth === currentMonth ? quoteCountThisMonth : 0;
@@ -117,12 +118,21 @@ export default function SettingsScreen() {
   }
 
   async function handleUpgrade(plan: 'pro' | 'team') {
-    if (!userId || !user?.email) return;
+    setBillingError('');
+    if (!userId) { setBillingError('Not signed in — please sign out and back in.'); return; }
+    if (!user?.email) { setBillingError('No email on account — contact support.'); return; }
+
+    const priceId = plan === 'pro'
+      ? process.env.EXPO_PUBLIC_STRIPE_PRO_PRICE_ID
+      : process.env.EXPO_PUBLIC_STRIPE_TEAM_PRICE_ID;
+
+    if (!priceId || priceId.startsWith('your_')) {
+      setBillingError('Stripe price IDs not set — add them to your .env file.');
+      return;
+    }
+
     setBillingLoading(plan);
     try {
-      const priceId = plan === 'pro'
-        ? process.env.EXPO_PUBLIC_STRIPE_PRO_PRICE_ID!
-        : process.env.EXPO_PUBLIC_STRIPE_TEAM_PRICE_ID!;
       const appUrl = Platform.OS === 'web' ? window.location.origin : 'http://localhost:8081';
       const result = await createCheckoutSession({
         userId,
@@ -133,35 +143,43 @@ export default function SettingsScreen() {
       });
       updateBilling({ stripeCustomerId: result.customerId });
       await openUrl(result.url);
-    } catch (e) {
-      Alert.alert('Error', 'Could not open checkout. Make sure the backend is running.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[Billing checkout]', msg);
+      setBillingError(msg);
     } finally {
       setBillingLoading(null);
     }
   }
 
   async function handleManage() {
-    if (!stripeCustomerId) return;
+    setBillingError('');
+    if (!stripeCustomerId) { setBillingError('No billing account found — upgrade first.'); return; }
     setBillingLoading('portal');
     try {
       const appUrl = Platform.OS === 'web' ? window.location.origin : 'http://localhost:8081';
       const result = await createPortalSession({ customerId: stripeCustomerId, returnUrl: appUrl });
       await openUrl(result.url);
-    } catch (e) {
-      Alert.alert('Error', 'Could not open billing portal.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[Billing portal]', msg);
+      setBillingError(msg);
     } finally {
       setBillingLoading(null);
     }
   }
 
   async function handleRefreshPlan() {
-    if (!stripeCustomerId) return;
+    setBillingError('');
+    if (!stripeCustomerId) { setBillingError('No billing account found — upgrade first.'); return; }
     setBillingLoading('refresh');
     try {
       const status = await getBillingStatus(stripeCustomerId);
       updateBilling({ subscriptionTier: status.tier });
-    } catch {
-      Alert.alert('Error', 'Could not refresh plan status.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[Billing status]', msg);
+      setBillingError(msg);
     } finally {
       setBillingLoading(null);
     }
@@ -345,6 +363,10 @@ export default function SettingsScreen() {
               </View>
             )}
           </View>
+
+          {billingError ? (
+            <Text style={styles.billingError}>{billingError}</Text>
+          ) : null}
 
           {subscriptionTier === 'free' ? (
             <View style={styles.upgradeButtons}>
@@ -564,6 +586,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   upgradeBtnSecondaryText: { color: Brand.navy, fontSize: 13, fontWeight: '600' },
+  billingError: {
+    fontSize: 12,
+    color: Brand.red,
+    backgroundColor: Brand.redLight,
+    borderRadius: 8,
+    padding: 10,
+    marginHorizontal: 14,
+    marginBottom: 8,
+  },
   signOutBtn: {
     marginTop: 24,
     borderRadius: 12,
