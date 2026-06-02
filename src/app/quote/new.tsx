@@ -42,6 +42,7 @@ export default function NewQuoteScreen() {
   const [title, setTitle] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
   const [generatedData, setGeneratedData] = useState<Pick<Quote, 'lineItems' | 'measurements' | 'subtotalMaterials' | 'subtotalLabour' | 'markupAmount' | 'subtotal' | 'vatAmount' | 'total' | 'markupPercent' | 'vatRate'> | null>(null);
@@ -145,6 +146,7 @@ export default function NewQuoteScreen() {
       quoteNumber,
       title: title.trim() || `Quote for ${customerName}`,
       customerName: customerName.trim() || 'Customer',
+      customerEmail: customerEmail.trim() || undefined,
       customerPhone: customerPhone.trim() || undefined,
       status: 'draft',
       jobDescription,
@@ -209,6 +211,10 @@ export default function NewQuoteScreen() {
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>CUSTOMER NAME</Text>
             <TextInput style={styles.input} value={customerName} onChangeText={setCustomerName} placeholder="e.g. Sarah Johnson" placeholderTextColor={Brand.textMuted} />
+          </View>
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>CUSTOMER EMAIL</Text>
+            <TextInput style={styles.input} value={customerEmail} onChangeText={setCustomerEmail} placeholder="customer@example.com" placeholderTextColor={Brand.textMuted} keyboardType="email-address" autoCapitalize="none" />
           </View>
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>CUSTOMER PHONE</Text>
