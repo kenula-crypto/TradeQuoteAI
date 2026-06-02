@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth';
@@ -40,15 +39,6 @@ export default function RootLayout() {
     if (!session && !inAuth) router.replace('/(auth)/login');
     if (session  &&  inAuth) router.replace('/(tabs)');
   }, [session, loading, segments]);
-
-  // Splash while resolving auth
-  if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: Brand.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={Brand.orange} size="large" />
-      </View>
-    );
-  }
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
