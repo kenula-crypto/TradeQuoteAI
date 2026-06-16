@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "TradeQuoteAIApp",
+    "name": "TradeQuoteAI",
     "slug": "TradeQuoteAIApp",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,11 +8,18 @@
     "scheme": "tradequoteaiapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/icon.png",
+      "bundleIdentifier": "co.uk.kaastech.tradequoteai",
+      "buildNumber": "1",
+      "supportsTablet": false,
+      "newArchEnabled": true
     },
     "android": {
+      "package": "co.uk.kaastech.tradequoteai",
+      "versionCode": 1,
+      "newArchEnabled": true,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#1B2E4B",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -20,7 +27,7 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
@@ -28,7 +35,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#1B2E4B",
           "android": {
             "image": "./assets/images/splash-icon.png",
             "imageWidth": 76
@@ -43,7 +50,6 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {},
       "eas": {
         "projectId": "ef6e936c-00f4-4938-82de-ed79cbab2daf"
       }

@@ -94,6 +94,8 @@ function dbToQuote(row: Record<string, unknown>): Quote {
     total:              (row.total as number)              ?? 0,
     createdAt:          row.created_at as string,
     validUntil:         row.valid_until as string,
+    notes:              (row.notes as string)              ?? undefined,
+    aiNotes:            (row.ai_notes as string)           ?? undefined,
     sentAt:             (row.sent_at as string)            ?? undefined,
     acceptedAt:         (row.accepted_at as string)        ?? undefined,
     declinedAt:         (row.declined_at as string)        ?? undefined,
@@ -123,6 +125,8 @@ function quoteToDb(quote: Quote, userId: string) {
     vat_rate:           quote.vatRate,
     total:              quote.total,
     valid_until:        quote.validUntil,
+    notes:              quote.notes            ?? null,
+    ai_notes:           quote.aiNotes          ?? null,
     sent_at:            quote.sentAt           ?? null,
     accepted_at:        quote.acceptedAt       ?? null,
     declined_at:        quote.declinedAt       ?? null,
@@ -179,4 +183,8 @@ export async function upsertCustomer(customer: Customer, userId: string) {
     phone:        customer.phone       ?? null,
     address:      customer.address     ?? null,
   });
+}
+
+export async function deleteCustomerFromDb(id: string) {
+  await supabase.from('customers').delete().eq('id', id);
 }

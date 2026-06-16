@@ -1,16 +1,20 @@
 import { useState } from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as MailComposer from 'expo-mail-composer';
 
 import { useStore } from '@/store';
 import { Brand } from '@/constants/theme';
 import { generateQuotePDF, draftQuoteEmail } from '@/lib/api';
-import type { QuoteStatus } from '@/types';
+import type { Quote, QuoteStatus } from '@/types';
+
+function uid() {
+  return Math.random().toString(36).slice(2, 10);
+}
 
 const STATUS_CONFIG: Record<QuoteStatus, { bg: string; text: string; label: string }> = {
   draft:    { bg: Brand.border,     text: '#374151',       label: 'Draft' },
@@ -22,12 +26,23 @@ const STATUS_CONFIG: Record<QuoteStatus, { bg: string; text: string; label: stri
 
 export default function QuoteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const quotes = useStore((s) => s.quotes);
-  const settings = useStore((s) => s.settings);
-  const updateQuote = useStore((s) => s.updateQuote);
-  const deleteQuote = useStore((s) => s.deleteQuote);
-  const [pdfLoading, setPdfLoading] = useState(false);
-  const [emailLoading, setEmailLoading] = useState(false);
+  const quotes        = useStore((s) => s.quotes);
+  const settings      = useStore((s) => s.settings);
+  const updateQuote   = useStore((s) => s.updateQuote);
+  const deleteQuote   = useStore((s) => s.deleteQuote);
+  const addQuote      = useStore((s) => s.addQuote);
+  const nextQuoteNumber = useStore((s) => s.nextQuoteNumber);
+  const [pdfLoading, setPdfLoading]       = useState(false);
+  const [emailLoading, setEmailLoading]   = useState(false);
+  const [editingNotes, setEditingNotes]   = useState(false);
+  const [notesText, setNotesText]         = useState('');
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [editTitle, setEditTitle]           = useState('');
+  const [editCustomerName, setEditCustomerName]     = useState('');
+  const [editCustomerEmail, setEditCustomerEmail]   = useState('');
+  const [editCustomerPhone, setEditCustomerPhone]   = useState('');
+  const [editCustomerAddress, setEditCustomerAddress] = useState('');
+  const [editJobDescription, setEditJobDescription] = useState('');
 
   const quote = quotes.find((q) => q.id === id);
 
@@ -64,11 +79,65 @@ export default function QuoteDetailScreen() {
     });
   }
 
+  function handleDuplicate() {
+    const quoteNumber = nextQuoteNumber();
+    const now = new Date();
+    const validUntil = new Date(now);
+    validUntil.setDate(validUntil.getDate() + settings.validityDays);
+    const dupeQuote: Quote = {
+      ...quote!,
+      id: uid(),
+      quoteNumber,
+      title: quote!.title.endsWith(' (Copy)') ? quote!.title : `${quote!.title} (Copy)`,
+      status: 'draft',
+      createdAt: now.toISOString(),
+      validUntil: validUntil.toISOString(),
+      sentAt: undefined,
+      acceptedAt: undefined,
+      declinedAt: undefined,
+    };
+    addQuote(dupeQuote);
+    router.replace(`/quote/${dupeQuote.id}`);
+  }
+
+  function openDetailsEdit() {
+    setEditTitle(quote!.title);
+    setEditCustomerName(quote!.customerName);
+    setEditCustomerEmail(quote!.customerEmail ?? '');
+    setEditCustomerPhone(quote!.customerPhone ?? '');
+    setEditCustomerAddress(quote!.customerAddress ?? '');
+    setEditJobDescription(quote!.jobDescription);
+    setEditingDetails(true);
+  }
+
+  function saveDetails() {
+    if (!editTitle.trim() || !editCustomerName.trim()) return;
+    updateQuote(quote!.id, {
+      title:           editTitle.trim(),
+      customerName:    editCustomerName.trim(),
+      customerEmail:   editCustomerEmail.trim()   || undefined,
+      customerPhone:   editCustomerPhone.trim()   || undefined,
+      customerAddress: editCustomerAddress.trim() || undefined,
+      jobDescription:  editJobDescription.trim(),
+    });
+    setEditingDetails(false);
+  }
+
+  function openNotesEdit() {
+    setNotesText(quote?.notes ?? '');
+    setEditingNotes(true);
+  }
+
+  function saveNotes() {
+    updateQuote(quote!.id, { notes: notesText.trim() || undefined });
+    setEditingNotes(false);
+  }
+
   async function handleSharePDF() {
     setPdfLoading(true);
     try {
       const result = await generateQuotePDF({
-        quote,
+        quote: quote!,
         settings: {
           businessName: settings.businessName,
           ownerName: settings.ownerName,
@@ -100,20 +169,19 @@ export default function QuoteDetailScreen() {
         });
         await Sharing.shareAsync(path, {
           mimeType: 'application/pdf',
-          dialogTitle: `Share ${quote.quoteNumber}`,
+          dialogTitle: `Share ${quote!.quoteNumber}`,
         });
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('[SharePDF]', msg);
-      Alert.alert('PDF Error', msg);
+      console.error('[SharePDF]', e instanceof Error ? e.message : e);
+      Alert.alert('Could not generate PDF', 'Please check your internet connection and try again.');
     } finally {
       setPdfLoading(false);
     }
   }
 
   async function handleEmailCustomer() {
-    if (!quote.customerEmail) {
+    if (!quote!.customerEmail) {
       Alert.alert('No email address', 'Add the customer\'s email address to this quote first.');
       return;
     }
@@ -121,7 +189,7 @@ export default function QuoteDetailScreen() {
     setEmailLoading(true);
     try {
       const backendPayload = {
-        quote,
+        quote: quote!,
         settings: {
           businessName: settings.businessName,
           ownerName: settings.ownerName,
@@ -139,7 +207,7 @@ export default function QuoteDetailScreen() {
 
       if (Platform.OS === 'web') {
         // Web: open mailto with subject + body (no attachment support in mailto)
-        const mailto = `mailto:${quote.customerEmail}`
+        const mailto = `mailto:${quote!.customerEmail}`
           + `?subject=${encodeURIComponent(emailDraft.subject)}`
           + `&body=${encodeURIComponent(emailDraft.body)}`;
         window.open(mailto, '_blank');
@@ -158,17 +226,22 @@ export default function QuoteDetailScreen() {
           return;
         }
 
-        await MailComposer.composeAsync({
-          recipients: [quote.customerEmail],
+        const composed = await MailComposer.composeAsync({
+          recipients: [quote!.customerEmail!],
           subject: emailDraft.subject,
           body: emailDraft.body,
           attachments: [pdfPath],
         });
+        if (composed.status === MailComposer.MailComposerStatus.SENT && quote!.status === 'draft') {
+          markAs('sent');
+        }
+        return; // skip the web sent-mark below
       }
+      // Web: mailto opened, mark as sent optimistically
+      if (quote!.status === 'draft') markAs('sent');
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('[EmailCustomer]', msg);
-      Alert.alert('Error', msg);
+      console.error('[EmailCustomer]', e instanceof Error ? e.message : e);
+      Alert.alert('Could not send email', 'Please check your internet connection and try again.');
     } finally {
       setEmailLoading(false);
     }
@@ -212,7 +285,12 @@ export default function QuoteDetailScreen() {
             <View style={[styles.badge, { backgroundColor: status.bg }]}>
               <Text style={[styles.badgeText, { color: status.text }]}>{status.label}</Text>
             </View>
-            <Text style={styles.quoteDate}>{createdDate}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Text style={styles.quoteDate}>{createdDate}</Text>
+              <TouchableOpacity onPress={openDetailsEdit} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="create-outline" size={16} color={Brand.orange} />
+              </TouchableOpacity>
+            </View>
           </View>
           <Text style={styles.quoteTitle}>{quote.title}</Text>
           <View style={styles.customerRow}>
@@ -324,6 +402,25 @@ export default function QuoteDetailScreen() {
           </View>
         </View>
 
+        {/* AI Notes */}
+        {quote.aiNotes ? (
+          <View style={styles.aiNotesCard}>
+            <Text style={styles.aiNotesLabel}>AI NOTES</Text>
+            <Text style={styles.aiNotesText}>{quote.aiNotes}</Text>
+          </View>
+        ) : null}
+
+        {/* User Notes */}
+        <TouchableOpacity style={styles.notesCard} onPress={openNotesEdit} activeOpacity={0.7}>
+          <View style={styles.notesTitleRow}>
+            <Text style={styles.notesLabel}>NOTES</Text>
+            <Ionicons name="create-outline" size={14} color={Brand.orange} />
+          </View>
+          <Text style={quote.notes ? styles.notesText : styles.notesPlaceholder}>
+            {quote.notes || 'Tap to add notes…'}
+          </Text>
+        </TouchableOpacity>
+
         {/* Actions */}
         <View style={styles.actionsSection}>
           {quote.status === 'draft' && (
@@ -374,10 +471,103 @@ export default function QuoteDetailScreen() {
               {pdfLoading ? 'Generating PDF...' : 'Share PDF'}
             </Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionBtn, styles.actionBtnSecondary]}
+            onPress={() =>
+              Alert.alert('Duplicate Quote', 'Create a new draft quote based on this one?', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Duplicate', onPress: handleDuplicate },
+              ])
+            }>
+            <Ionicons name="copy-outline" size={16} color={Brand.navy} />
+            <Text style={[styles.actionBtnText, { color: Brand.navy }]}>Duplicate Quote</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      {/* Edit Details modal */}
+      <Modal visible={editingDetails} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={{ flex: 1, backgroundColor: Brand.bg }}>
+          <View style={styles.detailsModalHeader}>
+            <TouchableOpacity onPress={() => setEditingDetails(false)}>
+              <Text style={styles.detailsModalCancel}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={styles.detailsModalTitle}>Edit Quote Details</Text>
+            <TouchableOpacity onPress={saveDetails}>
+              <Text style={[styles.detailsModalCancel, { color: Brand.orange, fontWeight: '600' }]}>Save</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={styles.detailsModalBody} keyboardShouldPersistTaps="handled">
+            <View style={styles.detailsField}>
+              <Text style={styles.detailsFieldLabel}>QUOTE TITLE</Text>
+              <TextInput style={styles.detailsInput} value={editTitle} onChangeText={setEditTitle}
+                placeholder="e.g. Lounge repaint" placeholderTextColor={Brand.textMuted} autoCapitalize="words" />
+            </View>
+            <View style={styles.detailsField}>
+              <Text style={styles.detailsFieldLabel}>CUSTOMER NAME</Text>
+              <TextInput style={styles.detailsInput} value={editCustomerName} onChangeText={setEditCustomerName}
+                placeholder="Full name" placeholderTextColor={Brand.textMuted} autoCapitalize="words" />
+            </View>
+            <View style={styles.detailsField}>
+              <Text style={styles.detailsFieldLabel}>EMAIL</Text>
+              <TextInput style={styles.detailsInput} value={editCustomerEmail} onChangeText={setEditCustomerEmail}
+                placeholder="customer@example.com" placeholderTextColor={Brand.textMuted}
+                keyboardType="email-address" autoCapitalize="none" />
+            </View>
+            <View style={styles.detailsField}>
+              <Text style={styles.detailsFieldLabel}>PHONE</Text>
+              <TextInput style={styles.detailsInput} value={editCustomerPhone} onChangeText={setEditCustomerPhone}
+                placeholder="07700 900 000" placeholderTextColor={Brand.textMuted} keyboardType="phone-pad" />
+            </View>
+            <View style={styles.detailsField}>
+              <Text style={styles.detailsFieldLabel}>ADDRESS</Text>
+              <TextInput style={styles.detailsInput} value={editCustomerAddress} onChangeText={setEditCustomerAddress}
+                placeholder="Street, city, postcode" placeholderTextColor={Brand.textMuted} autoCapitalize="words" />
+            </View>
+            <View style={styles.detailsField}>
+              <Text style={styles.detailsFieldLabel}>JOB DESCRIPTION</Text>
+              <TextInput
+                style={[styles.detailsInput, { height: 90, textAlignVertical: 'top' }]}
+                value={editJobDescription}
+                onChangeText={setEditJobDescription}
+                placeholder="Describe the work to be done…"
+                placeholderTextColor={Brand.textMuted}
+                multiline
+              />
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Notes edit modal */}
+      <Modal visible={editingNotes} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.notesModal}>
+            <Text style={styles.notesModalTitle}>Quote Notes</Text>
+            <TextInput
+              style={styles.notesInput}
+              value={notesText}
+              onChangeText={setNotesText}
+              placeholder="Internal notes, follow-up reminders…"
+              placeholderTextColor={Brand.textMuted}
+              multiline
+              numberOfLines={5}
+              textAlignVertical="top"
+              autoFocus
+            />
+            <View style={styles.notesModalBtns}>
+              <TouchableOpacity style={styles.notesCancelBtn} onPress={() => setEditingNotes(false)}>
+                <Text style={styles.notesCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.notesSaveBtn} onPress={saveNotes}>
+                <Text style={styles.notesSaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -505,4 +695,95 @@ const styles = StyleSheet.create({
     borderColor: Brand.border,
   },
   actionBtnText: { fontSize: 14, fontWeight: '600', color: Brand.white },
+  aiNotesCard: {
+    backgroundColor: Brand.bg,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Brand.border,
+    padding: 12,
+    gap: 4,
+  },
+  aiNotesLabel: { fontSize: 9, fontWeight: '700', color: Brand.textMuted, letterSpacing: 0.5 },
+  aiNotesText: { fontSize: 12, color: Brand.textSecondary, lineHeight: 18, fontStyle: 'italic' },
+  notesCard: {
+    backgroundColor: Brand.white,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Brand.border,
+    padding: 12,
+    gap: 6,
+  },
+  notesTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  notesLabel: { fontSize: 9, fontWeight: '700', color: Brand.textMuted, letterSpacing: 0.5 },
+  notesText: { fontSize: 12, color: Brand.navy, lineHeight: 18 },
+  notesPlaceholder: { fontSize: 12, color: Brand.textMuted, fontStyle: 'italic' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  notesModal: {
+    backgroundColor: Brand.white,
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    gap: 14,
+  },
+  notesModalTitle: { fontSize: 15, fontWeight: '700', color: Brand.navy },
+  notesInput: {
+    backgroundColor: Brand.bg,
+    borderWidth: 1.5,
+    borderColor: Brand.border,
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 13,
+    color: Brand.navy,
+    minHeight: 100,
+  },
+  notesModalBtns: { flexDirection: 'row', gap: 10 },
+  notesCancelBtn: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: Brand.bg,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  notesCancelText: { fontSize: 13, fontWeight: '600', color: Brand.textSecondary },
+  notesSaveBtn: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: Brand.orange,
+  },
+  notesSaveText: { fontSize: 13, fontWeight: '700', color: Brand.white },
+  detailsModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: Brand.white,
+    borderBottomWidth: 1,
+    borderBottomColor: Brand.border,
+  },
+  detailsModalTitle:  { fontSize: 16, fontWeight: '700', color: Brand.navy },
+  detailsModalCancel: { fontSize: 14, color: Brand.textSecondary },
+  detailsModalBody:   { padding: 16, gap: 14 },
+  detailsField:       { gap: 4 },
+  detailsFieldLabel:  { fontSize: 10, fontWeight: '700', color: Brand.textMuted, letterSpacing: 0.5 },
+  detailsInput: {
+    backgroundColor: Brand.white,
+    borderWidth: 1.5,
+    borderColor: Brand.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: Brand.navy,
+  },
 });

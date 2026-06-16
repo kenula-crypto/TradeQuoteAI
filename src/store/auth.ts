@@ -29,12 +29,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) return error.message;
     if (data.user) {
-      await supabase.from('profiles').upsert({
+      const { error: profileError } = await supabase.from('profiles').upsert({
         id: data.user.id,
         email,
         business_name: businessName,
         owner_name: ownerName,
       });
+      if (profileError) console.warn('[signUp] Profile upsert failed:', profileError.message);
     }
     return null;
   },

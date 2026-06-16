@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Alert,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,8 +13,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
-import { Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
+import { router } from 'expo-router';
 import { useStore } from '@/store';
 import { useAuthStore } from '@/store/auth';
 import { Brand } from '@/constants/theme';
@@ -126,8 +127,17 @@ export default function SettingsScreen() {
   async function openUrl(url: string) {
     if (Platform.OS === 'web') {
       window.open(url, '_blank');
-    } else {
-      await WebBrowser.openBrowserAsync(url);
+      return;
+    }
+    // On native, use openAuthSessionAsync so the in-app browser auto-closes when
+    // Stripe redirects back to the tradequoteaiapp:// scheme after checkout.
+    await WebBrowser.openAuthSessionAsync(url, 'tradequoteaiapp://');
+    // Auto-refresh billing status after the Stripe session ends
+    const email = user?.email;
+    if (email) {
+      getBillingStatus(email)
+        .then((status) => updateBilling({ subscriptionTier: status.tier }))
+        .catch(() => {});
     }
   }
 
@@ -147,7 +157,7 @@ export default function SettingsScreen() {
 
     setBillingLoading(plan);
     try {
-      const appUrl = Platform.OS === 'web' ? window.location.origin : 'http://localhost:8081';
+      const appUrl = Platform.OS === 'web' ? window.location.origin : 'tradequoteaiapp://stripe-return';
       const result = await createCheckoutSession({
         userId: effectiveUserId,
         email: user.email,
@@ -171,7 +181,7 @@ export default function SettingsScreen() {
     if (!stripeCustomerId) { setBillingError('No billing account found — upgrade first.'); return; }
     setBillingLoading('portal');
     try {
-      const appUrl = Platform.OS === 'web' ? window.location.origin : 'http://localhost:8081';
+      const appUrl = Platform.OS === 'web' ? window.location.origin : 'tradequoteaiapp://stripe-return';
       const result = await createPortalSession({ customerId: stripeCustomerId, returnUrl: appUrl });
       await openUrl(result.url);
     } catch (e: unknown) {
@@ -213,7 +223,26 @@ export default function SettingsScreen() {
   function saveEdit(val: string) {
     if (!editing) return;
     const { field, numeric } = editing;
-    const parsed = numeric ? parseFloat(val) || 0 : val;
+    let parsed: string | number = numeric ? parseFloat(val) : val;
+
+    if (numeric) {
+      if (isNaN(parsed as number)) parsed = 0;
+      if (field.endsWith(':hourlyRate') && (parsed as number) < 0) {
+        Alert.alert('Invalid Rate', 'Hourly rate cannot be negative.');
+        return;
+      }
+      if (field === 'defaultMarkup' && (parsed as number) < 0) {
+        Alert.alert('Invalid Markup', 'Markup cannot be negative.');
+        return;
+      }
+      if (field === 'vatRate' && ((parsed as number) < 0 || (parsed as number) > 100)) {
+        Alert.alert('Invalid VAT Rate', 'VAT rate must be between 0 and 100.');
+        return;
+      }
+      if (field === 'validityDays' && (parsed as number) < 1) {
+        parsed = 1;
+      }
+    }
 
     if (field.startsWith('emp:')) {
       const [, empId, empField] = field.split(':');
@@ -421,6 +450,24 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </View>
           )}
+        </View>
+
+        {/* Legal */}
+        <Text style={styles.sectionTitle}>LEGAL</Text>
+        <View style={styles.section}>
+          <TouchableOpacity style={styles.settingRow} onPress={() => router.push('/privacy-policy' as never)}>
+            <Text style={styles.settingLabel}>Privacy Policy</Text>
+            <View style={styles.settingRight}>
+              <Ionicons name="chevron-forward" size={14} color={Brand.border} />
+            </View>
+          </TouchableOpacity>
+          <View style={styles.divider} />
+          <TouchableOpacity style={styles.settingRow} onPress={() => router.push('/terms-of-service' as never)}>
+            <Text style={styles.settingLabel}>Terms of Service</Text>
+            <View style={styles.settingRight}>
+              <Ionicons name="chevron-forward" size={14} color={Brand.border} />
+            </View>
+          </TouchableOpacity>
         </View>
 
         {/* Sign Out */}

@@ -35,7 +35,7 @@ export default function TabsLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color, size }) => (
-            <TabIcon name="home" color={color} size={size} />
+            <TabIcon name="home" color={color as string} size={size} />
           ),
         }}
       />
@@ -44,7 +44,7 @@ export default function TabsLayout() {
         options={{
           title: 'Quotes',
           tabBarIcon: ({ color, size }) => (
-            <TabIcon name="document-text" color={color} size={size} />
+            <TabIcon name="document-text" color={color as string} size={size} />
           ),
         }}
       />
@@ -53,7 +53,7 @@ export default function TabsLayout() {
         options={{
           title: 'Clients',
           tabBarIcon: ({ color, size }) => (
-            <TabIcon name="people" color={color} size={size} />
+            <TabIcon name="people" color={color as string} size={size} />
           ),
         }}
       />
@@ -62,7 +62,7 @@ export default function TabsLayout() {
         options={{
           title: 'Settings',
           tabBarIcon: ({ color, size }) => (
-            <TabIcon name="settings" color={color} size={size} />
+            <TabIcon name="settings" color={color as string} size={size} />
           ),
         }}
       />

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,10 +15,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { generateQuoteFromAI } from '@/lib/api';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import * as MailComposer from 'expo-mail-composer';
+import { generateQuoteFromAI, generateQuotePDF, draftQuoteEmail } from '@/lib/api';
 import { useStore } from '@/store';
 import { Brand } from '@/constants/theme';
-import type { Measurement, Quote, QuoteLineItem, SurfaceType } from '@/types';
+import type { Measurement, Quote, QuoteLineItem, SurfaceType, LineItemType } from '@/types';
 
 type Step = 'details' | 'measurements' | 'processing' | 'review' | 'send';
 
@@ -33,6 +37,134 @@ function uid() {
 }
 
 
+function EditItemModal({
+  item,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  item: QuoteLineItem;
+  onClose: () => void;
+  onSave: (item: QuoteLineItem) => void;
+  onDelete: () => void;
+}) {
+  const [name, setName]         = useState(item.name);
+  const [type, setType]         = useState<LineItemType>(item.type);
+  const [quantity, setQuantity] = useState(String(item.quantity));
+  const [unit, setUnit]         = useState(item.unit);
+  const [unitCost, setUnitCost] = useState(String(item.unitCost));
+
+  const qty   = parseFloat(quantity) || 0;
+  const uc    = parseFloat(unitCost) || 0;
+  const total = Math.round(qty * uc * 100) / 100;
+
+  function handleSave() {
+    if (!name.trim()) {
+      Alert.alert('Required', 'Please enter a name for this item.');
+      return;
+    }
+    onSave({ ...item, name: name.trim(), type, quantity: qty, unit: unit.trim() || 'each', unitCost: uc, totalCost: total });
+  }
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet">
+      <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={onClose}>
+            <Text style={styles.modalCancel}>Cancel</Text>
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>Edit Item</Text>
+          <TouchableOpacity onPress={handleSave}>
+            <Text style={[styles.modalCancel, { color: Brand.orange, fontWeight: '600' }]}>Save</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>TYPE</Text>
+            <View style={styles.surfaceRow}>
+              {(['material', 'labour'] as const).map((t) => (
+                <TouchableOpacity
+                  key={t}
+                  style={[styles.surfaceChip, type === t && styles.surfaceChipActive]}
+                  onPress={() => setType(t)}>
+                  <Text style={[styles.surfaceChipText, type === t && styles.surfaceChipTextActive]}>
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>DESCRIPTION</Text>
+            <TextInput
+              style={styles.input}
+              value={name}
+              onChangeText={setName}
+              placeholder="e.g. Dulux Trade Matt 10L"
+              placeholderTextColor={Brand.textMuted}
+            />
+          </View>
+
+          <View style={styles.dimensionRow}>
+            <View style={[styles.fieldGroup, { flex: 1 }]}>
+              <Text style={styles.fieldLabelSmall}>Quantity</Text>
+              <TextInput
+                style={styles.input}
+                value={quantity}
+                onChangeText={setQuantity}
+                keyboardType="decimal-pad"
+                placeholder="1"
+                placeholderTextColor={Brand.textMuted}
+              />
+            </View>
+            <View style={[styles.fieldGroup, { flex: 1 }]}>
+              <Text style={styles.fieldLabelSmall}>Unit</Text>
+              <TextInput
+                style={styles.input}
+                value={unit}
+                onChangeText={setUnit}
+                placeholder="each"
+                placeholderTextColor={Brand.textMuted}
+              />
+            </View>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>UNIT COST (£)</Text>
+            <TextInput
+              style={styles.input}
+              value={unitCost}
+              onChangeText={setUnitCost}
+              keyboardType="decimal-pad"
+              placeholder="0.00"
+              placeholderTextColor={Brand.textMuted}
+            />
+          </View>
+
+          <View style={styles.totalBar}>
+            <Text style={styles.totalBarLabel}>Line total</Text>
+            <Text style={styles.totalBarValue}>£{total.toFixed(2)}</Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.deleteItemBtn}
+            onPress={() =>
+              Alert.alert('Remove Item', 'Remove this line item from the quote?', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Remove', style: 'destructive', onPress: onDelete },
+              ])
+            }>
+            <Ionicons name="trash-outline" size={15} color={Brand.red} />
+            <Text style={styles.deleteItemText}>Remove this item</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 export default function NewQuoteScreen() {
   const settings            = useStore((s) => s.settings);
   const addQuote            = useStore((s) => s.addQuote);
@@ -46,9 +178,12 @@ export default function NewQuoteScreen() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
-  const [generatedData, setGeneratedData] = useState<Pick<Quote, 'lineItems' | 'measurements' | 'subtotalMaterials' | 'subtotalLabour' | 'markupAmount' | 'subtotal' | 'vatAmount' | 'total' | 'markupPercent' | 'vatRate'> | null>(null);
+  const [generatedData, setGeneratedData] = useState<Pick<Quote, 'lineItems' | 'measurements' | 'subtotalMaterials' | 'subtotalLabour' | 'markupAmount' | 'subtotal' | 'vatAmount' | 'total' | 'markupPercent' | 'vatRate' | 'aiNotes'> | null>(null);
+  const [editingItem, setEditingItem] = useState<QuoteLineItem | null>(null);
+  const [sendLoading, setSendLoading] = useState<'email' | 'share' | null>(null);
 
   const [showAddArea, setShowAddArea] = useState(false);
   const [areaLabel, setAreaLabel] = useState('');
@@ -62,6 +197,8 @@ export default function NewQuoteScreen() {
 
   useEffect(() => {
     if (step !== 'processing') return;
+
+    let cancelled = false;
 
     const interval = setInterval(() => {
       processingDots.current = (processingDots.current + 1) % 4;
@@ -85,6 +222,7 @@ export default function NewQuoteScreen() {
     })
       .then((result) => {
         clearInterval(interval);
+        if (cancelled) return;
         const lineItems: QuoteLineItem[] = result.line_items.map((i) => ({
           id: i.id,
           type: i.type,
@@ -105,27 +243,32 @@ export default function NewQuoteScreen() {
           total: result.total,
           markupPercent: settings.defaultMarkup,
           vatRate: settings.vatRate,
+          aiNotes: result.ai_notes ?? undefined,
         });
         setStep('review');
       })
-      .catch((err) => {
+      .catch(() => {
         clearInterval(interval);
+        if (cancelled) return;
         Alert.alert(
-          'AI Error',
-          'Could not generate quote. Make sure the backend is running.\n\n' + String(err?.message ?? err),
+          'Quote Generation Failed',
+          'Could not generate your quote. Please check your internet connection and try again.',
         );
         setStep('measurements');
       });
 
-    return () => clearInterval(interval);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [step]);
 
   function addArea() {
     const m2 = areaM2Direct
       ? parseFloat(areaM2Direct)
       : parseFloat(areaWidth) * parseFloat(areaHeight);
-    if (!areaLabel.trim() || !m2 || isNaN(m2)) {
-      Alert.alert('Missing info', 'Please enter a label and dimensions.');
+    if (!areaLabel.trim() || !m2 || isNaN(m2) || m2 <= 0) {
+      Alert.alert('Missing info', 'Please enter a label and a positive area.');
       return;
     }
     setMeasurements((prev) => [
@@ -137,28 +280,170 @@ export default function NewQuoteScreen() {
     setShowAddArea(false);
   }
 
-  function saveQuote() {
+  function round2(n: number) { return Math.round(n * 100) / 100; }
+
+  function recalcFromItems(items: QuoteLineItem[]) {
+    setGeneratedData((prev) => {
+      if (!prev) return prev;
+      const subtotalMaterials = round2(items.filter(i => i.type === 'material').reduce((s, i) => s + i.totalCost, 0));
+      const subtotalLabour    = round2(items.filter(i => i.type === 'labour').reduce((s, i) => s + i.totalCost, 0));
+      const markupAmount      = round2(subtotalMaterials * (prev.markupPercent / 100));
+      const subtotal          = round2(subtotalMaterials + subtotalLabour + markupAmount);
+      const vatAmount         = round2(subtotal * (prev.vatRate / 100));
+      return { ...prev, lineItems: items, subtotalMaterials, subtotalLabour, markupAmount, subtotal, vatAmount, total: round2(subtotal + vatAmount), aiNotes: prev.aiNotes };
+    });
+  }
+
+  function saveItemEdit(updated: QuoteLineItem) {
     if (!generatedData) return;
+    recalcFromItems(generatedData.lineItems.map(i => i.id === updated.id ? updated : i));
+    setEditingItem(null);
+  }
+
+  function deleteItem(id: string) {
+    if (!generatedData) return;
+    recalcFromItems(generatedData.lineItems.filter(i => i.id !== id));
+  }
+
+  function addItem(type: LineItemType) {
+    if (!generatedData) return;
+    const newItem: QuoteLineItem = {
+      id: uid(),
+      type,
+      name: type === 'material' ? 'New material' : 'Labour',
+      quantity: 1,
+      unit: type === 'material' ? 'each' : 'hour',
+      unitCost: 0,
+      totalCost: 0,
+    };
+    recalcFromItems([...generatedData.lineItems, newItem]);
+    setEditingItem(newItem);
+  }
+
+  function buildQuote(): Quote {
     const quoteNumber = nextQuoteNumber();
     const now = new Date();
     const validUntil = new Date(now);
     validUntil.setDate(validUntil.getDate() + settings.validityDays);
-
-    const quote: Quote = {
+    return {
       id: uid(),
       quoteNumber,
       title: title.trim() || `Quote for ${customerName}`,
       customerName: customerName.trim() || 'Customer',
       customerEmail: customerEmail.trim() || undefined,
       customerPhone: customerPhone.trim() || undefined,
+      customerAddress: customerAddress.trim() || undefined,
       status: 'draft',
       jobDescription,
       createdAt: now.toISOString(),
       validUntil: validUntil.toISOString(),
-      ...generatedData,
+      ...generatedData!,
     };
+  }
+
+  function saveQuote() {
+    if (!generatedData) return;
+    const quote = buildQuote();
     addQuote(quote);
     router.replace(`/quote/${quote.id}`);
+  }
+
+  async function saveAndEmail() {
+    if (!generatedData) return;
+    if (!customerEmail.trim()) {
+      Alert.alert('No email address', 'Enter a customer email address on the previous step first.');
+      return;
+    }
+    setSendLoading('email');
+    const quote = buildQuote();
+    addQuote(quote);
+    const settingsPayload = {
+      businessName: settings.businessName,
+      ownerName: settings.ownerName,
+      phone: settings.phone,
+      email: settings.email,
+      paymentTerms: settings.paymentTerms,
+    };
+    try {
+      const [emailDraft, pdfResult] = await Promise.all([
+        draftQuoteEmail({ quote, settings: settingsPayload }),
+        generateQuotePDF({ quote, settings: settingsPayload }),
+      ]);
+      if (Platform.OS === 'web') {
+        const mailto = `mailto:${quote.customerEmail}`
+          + `?subject=${encodeURIComponent(emailDraft.subject)}`
+          + `&body=${encodeURIComponent(emailDraft.body)}`;
+        window.open(mailto, '_blank');
+      } else {
+        const dir = FileSystem.cacheDirectory;
+        if (!dir) throw new Error('Cache directory unavailable');
+        const pdfPath = dir + pdfResult.filename;
+        await FileSystem.writeAsStringAsync(pdfPath, pdfResult.pdf_base64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const available = await MailComposer.isAvailableAsync();
+        if (!available) {
+          Alert.alert('No mail app', 'No email client is configured on this device.');
+        } else {
+          await MailComposer.composeAsync({
+            recipients: [quote.customerEmail!],
+            subject: emailDraft.subject,
+            body: emailDraft.body,
+            attachments: [pdfPath],
+          });
+        }
+      }
+    } catch {
+      Alert.alert('Could not send email', 'Please check your internet connection and try again.');
+    } finally {
+      setSendLoading(null);
+      router.replace(`/quote/${quote.id}`);
+    }
+  }
+
+  async function saveAndShare() {
+    if (!generatedData) return;
+    setSendLoading('share');
+    const quote = buildQuote();
+    addQuote(quote);
+    const settingsPayload = {
+      businessName: settings.businessName,
+      ownerName: settings.ownerName,
+      phone: settings.phone,
+      email: settings.email,
+      paymentTerms: settings.paymentTerms,
+    };
+    try {
+      const pdfResult = await generateQuotePDF({ quote, settings: settingsPayload });
+      if (Platform.OS === 'web') {
+        const bytes = atob(pdfResult.pdf_base64);
+        const array = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) array[i] = bytes.charCodeAt(i);
+        const blob = new Blob([array], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = pdfResult.filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const dir = FileSystem.cacheDirectory;
+        if (!dir) throw new Error('Cache directory unavailable');
+        const path = dir + pdfResult.filename;
+        await FileSystem.writeAsStringAsync(path, pdfResult.pdf_base64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        await Sharing.shareAsync(path, {
+          mimeType: 'application/pdf',
+          dialogTitle: `Share ${quote.quoteNumber}`,
+        });
+      }
+    } catch {
+      Alert.alert('Could not generate PDF', 'Please check your internet connection and try again.');
+    } finally {
+      setSendLoading(null);
+      router.replace(`/quote/${quote.id}`);
+    }
   }
 
   function goBack() {
@@ -222,6 +507,10 @@ export default function NewQuoteScreen() {
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>CUSTOMER PHONE</Text>
             <TextInput style={styles.input} value={customerPhone} onChangeText={setCustomerPhone} placeholder="07700 900 000" placeholderTextColor={Brand.textMuted} keyboardType="phone-pad" />
+          </View>
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>CUSTOMER ADDRESS</Text>
+            <TextInput style={styles.input} value={customerAddress} onChangeText={setCustomerAddress} placeholder="Street, town, postcode" placeholderTextColor={Brand.textMuted} autoCapitalize="words" />
           </View>
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>DESCRIBE THE JOB</Text>
@@ -368,14 +657,25 @@ export default function NewQuoteScreen() {
                   <Text style={styles.lineSectionTotal}>£{sectionTotal}</Text>
                 </View>
                 {items.map((item) => (
-                  <View key={item.id} style={styles.lineItem}>
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.lineItem}
+                    activeOpacity={0.7}
+                    onPress={() => setEditingItem(item)}>
                     <View style={styles.lineItemLeft}>
                       <Text style={styles.lineItemName}>{item.name}</Text>
                       <Text style={styles.lineItemSub}>{item.quantity} {item.unit} × £{item.unitCost}</Text>
                     </View>
-                    <Text style={styles.lineItemTotal}>£{item.totalCost}</Text>
-                  </View>
+                    <View style={styles.lineItemRight}>
+                      <Text style={styles.lineItemTotal}>£{item.totalCost}</Text>
+                      <Ionicons name="create-outline" size={13} color={Brand.textMuted} />
+                    </View>
+                  </TouchableOpacity>
                 ))}
+                <TouchableOpacity style={styles.addLineBtn} onPress={() => addItem(type)}>
+                  <Ionicons name="add-circle-outline" size={15} color={Brand.orange} />
+                  <Text style={styles.addLineBtnText}>Add {type === 'material' ? 'material' : 'labour'}</Text>
+                </TouchableOpacity>
               </View>
             );
           })}
@@ -422,19 +722,46 @@ export default function NewQuoteScreen() {
             </View>
           </View>
 
-          <TouchableOpacity style={styles.primaryBtn} onPress={saveQuote}>
+          <TouchableOpacity
+            style={[styles.primaryBtn, sendLoading !== null && { opacity: 0.6 }]}
+            onPress={saveQuote}
+            disabled={sendLoading !== null}>
             <Ionicons name="save-outline" size={16} color={Brand.white} />
             <Text style={styles.primaryBtnText}>Save Quote</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={saveQuote}>
-            <Ionicons name="mail-outline" size={16} color={Brand.navy} />
-            <Text style={styles.secondaryBtnText}>Save & Email</Text>
+          <TouchableOpacity
+            style={[styles.secondaryBtn, sendLoading !== null && { opacity: 0.6 }]}
+            onPress={saveAndEmail}
+            disabled={sendLoading !== null}>
+            {sendLoading === 'email'
+              ? <ActivityIndicator size="small" color={Brand.navy} />
+              : <Ionicons name="mail-outline" size={16} color={Brand.navy} />}
+            <Text style={styles.secondaryBtnText}>
+              {sendLoading === 'email' ? 'Preparing email...' : 'Save & Email'}
+            </Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={saveQuote}>
-            <Ionicons name="share-social-outline" size={16} color={Brand.navy} />
-            <Text style={styles.secondaryBtnText}>Save & Share</Text>
+          <TouchableOpacity
+            style={[styles.secondaryBtn, sendLoading !== null && { opacity: 0.6 }]}
+            onPress={saveAndShare}
+            disabled={sendLoading !== null}>
+            {sendLoading === 'share'
+              ? <ActivityIndicator size="small" color={Brand.navy} />
+              : <Ionicons name="share-social-outline" size={16} color={Brand.navy} />}
+            <Text style={styles.secondaryBtnText}>
+              {sendLoading === 'share' ? 'Generating PDF...' : 'Save & Share PDF'}
+            </Text>
           </TouchableOpacity>
         </ScrollView>
+      )}
+
+      {/* Edit Line Item Modal */}
+      {editingItem && (
+        <EditItemModal
+          item={editingItem}
+          onClose={() => setEditingItem(null)}
+          onSave={saveItemEdit}
+          onDelete={() => { deleteItem(editingItem.id); setEditingItem(null); }}
+        />
       )}
 
       {/* Add Area Modal */}
@@ -692,6 +1019,29 @@ const styles = StyleSheet.create({
   lineItemName: { fontSize: 12, fontWeight: '500', color: Brand.navy },
   lineItemSub: { fontSize: 10, color: Brand.textMuted, marginTop: 1 },
   lineItemTotal: { fontSize: 13, fontWeight: '600', color: Brand.navy },
+  lineItemRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  addLineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: Brand.borderLight,
+  },
+  addLineBtnText: { fontSize: 12, color: Brand.orange, fontWeight: '500' },
+  deleteItemBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: Brand.red,
+    borderRadius: 10,
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  deleteItemText: { fontSize: 13, color: Brand.red, fontWeight: '500' },
   pdfPreview: {
     backgroundColor: Brand.white,
     borderRadius: 10,

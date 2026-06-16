@@ -23,10 +23,15 @@ export default function RegisterScreen() {
   const [password, setPassword]         = useState('');
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState('');
+  const [pendingVerification, setPendingVerification] = useState(false);
 
   async function handleRegister() {
     if (!businessName.trim() || !ownerName.trim() || !email.trim() || !password) {
       setError('Please fill in all fields.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError('Please enter a valid email address.');
       return;
     }
     if (password.length < 6) {
@@ -37,7 +42,38 @@ export default function RegisterScreen() {
     setError('');
     const err = await signUp(email.trim().toLowerCase(), password, businessName.trim(), ownerName.trim());
     setLoading(false);
-    if (err) setError(err);
+    if (err) {
+      setError(err);
+    } else {
+      setPendingVerification(true);
+    }
+  }
+
+  if (pendingVerification) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.inner}>
+          <View style={styles.logoArea}>
+            <View style={styles.logoIcon}>
+              <Text style={styles.logoEmoji}>✉️</Text>
+            </View>
+            <Text style={styles.logoTitle}>Check your email</Text>
+            <Text style={styles.logoSub}>We sent a confirmation link to</Text>
+            <Text style={[styles.logoSub, { color: Brand.orange, fontWeight: '600', marginTop: 2 }]}>
+              {email.trim().toLowerCase()}
+            </Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={[styles.cardTitle, { fontSize: 14, fontWeight: '400', color: Brand.textSecondary }]}>
+              Click the link in the email to activate your account. Once confirmed, you can sign in.
+            </Text>
+            <TouchableOpacity style={styles.btn} onPress={() => router.replace('/(auth)/login')}>
+              <Text style={styles.btnText}>Go to Sign In</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
   }
 
   return (

@@ -3,7 +3,7 @@ import type { Quote, Customer, UserSettings, Employee } from '@/types';
 import {
   loadProfile, saveProfile, saveBilling,
   loadQuotes, upsertQuote, deleteQuoteFromDb,
-  loadCustomers, upsertCustomer,
+  loadCustomers, upsertCustomer, deleteCustomerFromDb,
   type BillingInfo,
 } from '@/lib/db';
 
@@ -45,6 +45,7 @@ interface AppState {
   // Customers
   addCustomer:    (customer: Customer) => void;
   updateCustomer: (id: string, updates: Partial<Customer>) => void;
+  removeCustomer: (id: string) => void;
 
   // Settings
   updateSettings:  (updates: Partial<UserSettings>) => void;
@@ -75,11 +76,23 @@ export const useStore = create<AppState>()((set, get) => ({
   // ── Bootstrap ────────────────────────────────────────────────
   loadUserData: async (userId) => {
     set({ userId, dataLoaded: false });
-    const [profile, quotes, customers] = await Promise.all([
+    const [profile, rawQuotes, customers] = await Promise.all([
       loadProfile(userId),
       loadQuotes(userId),
       loadCustomers(userId),
     ]);
+
+    // Auto-expire quotes whose validity period has passed
+    const now = new Date().toISOString();
+    const quotes = rawQuotes.map((q) => {
+      if ((q.status === 'draft' || q.status === 'sent') && q.validUntil < now) {
+        return { ...q, status: 'expired' as const };
+      }
+      return q;
+    });
+    const expired = quotes.filter((q, i) => q.status === 'expired' && rawQuotes[i].status !== 'expired');
+    expired.forEach((q) => upsertQuote(q, userId).catch(console.error));
+
     set({
       quotes,
       customers,
@@ -174,6 +187,11 @@ export const useStore = create<AppState>()((set, get) => ({
       const customer = get().customers.find((c) => c.id === id);
       if (customer) upsertCustomer(customer, userId).catch(console.error);
     }
+  },
+
+  removeCustomer: (id) => {
+    set((s) => ({ customers: s.customers.filter((c) => c.id !== id) }));
+    deleteCustomerFromDb(id).catch(console.error);
   },
 
   // ── Settings ─────────────────────────────────────────────────

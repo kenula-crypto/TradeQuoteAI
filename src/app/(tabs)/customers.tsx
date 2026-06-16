@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import {
+  Alert,
   FlatList,
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -15,7 +17,7 @@ import { useStore } from '@/store';
 import { Brand } from '@/constants/theme';
 import type { Customer } from '@/types';
 
-function CustomerRow({ item }: { item: Customer }) {
+function CustomerRow({ item, onPress }: { item: Customer; onPress: () => void }) {
   const initials = item.name
     .split(' ')
     .map((n) => n[0])
@@ -24,50 +26,69 @@ function CustomerRow({ item }: { item: Customer }) {
     .toUpperCase();
 
   return (
-    <View style={styles.row}>
+    <TouchableOpacity style={styles.row} activeOpacity={0.7} onPress={onPress}>
       <View style={styles.avatar}>
         <Text style={styles.avatarText}>{initials}</Text>
       </View>
       <View style={styles.rowInfo}>
         <Text style={styles.rowName}>{item.name}</Text>
-        {item.companyName && (
+        {item.companyName ? (
           <Text style={styles.rowSub}>{item.companyName}</Text>
-        )}
-        {item.phone && !item.companyName && (
+        ) : item.phone ? (
           <Text style={styles.rowSub}>{item.phone}</Text>
-        )}
+        ) : item.email ? (
+          <Text style={styles.rowSub}>{item.email}</Text>
+        ) : null}
       </View>
       <Ionicons name="chevron-forward" size={16} color={Brand.border} />
-    </View>
+    </TouchableOpacity>
   );
 }
 
-function AddCustomerModal({
+type CustomerFormState = {
+  name: string;
+  companyName: string;
+  phone: string;
+  email: string;
+  address: string;
+};
+
+function CustomerModal({
   visible,
+  initial,
+  title,
   onClose,
+  onSave,
+  onDelete,
 }: {
   visible: boolean;
+  initial: CustomerFormState;
+  title: string;
   onClose: () => void;
+  onSave: (v: CustomerFormState) => void;
+  onDelete?: () => void;
 }) {
-  const addCustomer = useStore((s) => s.addCustomer);
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [address, setAddress] = useState('');
+  const [name, setName]               = useState(initial.name);
+  const [companyName, setCompanyName] = useState(initial.companyName);
+  const [phone, setPhone]             = useState(initial.phone);
+  const [email, setEmail]             = useState(initial.email);
+  const [address, setAddress]         = useState(initial.address);
 
-  function save() {
-    if (!name.trim()) return;
-    addCustomer({
-      id: `c-${Date.now()}`,
-      name: name.trim(),
-      phone: phone.trim() || undefined,
-      email: email.trim() || undefined,
-      address: address.trim() || undefined,
-      createdAt: new Date().toISOString(),
-    });
-    setName(''); setPhone(''); setEmail(''); setAddress('');
-    onClose();
+  function handleSave() {
+    if (!name.trim()) {
+      Alert.alert('Name required', 'Please enter the client\'s name.');
+      return;
+    }
+    onSave({ name: name.trim(), companyName: companyName.trim(), phone: phone.trim(), email: email.trim(), address: address.trim() });
   }
+
+  const fields: { label: string; value: string; set: (v: string) => void; placeholder: string; keyboard?: 'default' | 'email-address' | 'phone-pad' }[] = [
+    { label: 'NAME *',       value: name,        set: setName,        placeholder: 'Full name or company' },
+    { label: 'COMPANY',      value: companyName,  set: setCompanyName, placeholder: 'Optional' },
+    { label: 'PHONE',        value: phone,        set: setPhone,       placeholder: '07700 900 000', keyboard: 'phone-pad' },
+    { label: 'EMAIL',        value: email,        set: setEmail,       placeholder: 'email@example.com', keyboard: 'email-address' },
+    { label: 'ADDRESS',      value: address,      set: setAddress,     placeholder: 'Street, city, postcode' },
+  ];
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
@@ -76,49 +97,101 @@ function AddCustomerModal({
           <TouchableOpacity onPress={onClose}>
             <Text style={styles.cancelText}>Cancel</Text>
           </TouchableOpacity>
-          <Text style={styles.modalTitle}>New Client</Text>
-          <TouchableOpacity onPress={save}>
-            <Text style={[styles.cancelText, { color: Brand.orange, fontWeight: '600' }]}>
-              Save
-            </Text>
+          <Text style={styles.modalTitle}>{title}</Text>
+          <TouchableOpacity onPress={handleSave}>
+            <Text style={[styles.cancelText, { color: Brand.orange, fontWeight: '600' }]}>Save</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.modalBody}>
-          {[
-            { label: 'NAME *', value: name, set: setName, placeholder: 'Full name or company' },
-            { label: 'PHONE', value: phone, set: setPhone, placeholder: '07700 900 000' },
-            { label: 'EMAIL', value: email, set: setEmail, placeholder: 'email@example.com' },
-            { label: 'ADDRESS', value: address, set: setAddress, placeholder: 'Street, city, postcode' },
-          ].map((field) => (
-            <View key={field.label} style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>{field.label}</Text>
+        <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
+          {fields.map((f) => (
+            <View key={f.label} style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>{f.label}</Text>
               <TextInput
                 style={styles.fieldInput}
-                value={field.value}
-                onChangeText={field.set}
-                placeholder={field.placeholder}
+                value={f.value}
+                onChangeText={f.set}
+                placeholder={f.placeholder}
                 placeholderTextColor={Brand.textMuted}
+                keyboardType={f.keyboard ?? 'default'}
+                autoCapitalize={f.keyboard === 'email-address' ? 'none' : 'words'}
               />
             </View>
           ))}
-        </View>
+
+          {onDelete && (
+            <TouchableOpacity style={styles.deleteBtn} onPress={onDelete}>
+              <Ionicons name="trash-outline" size={16} color={Brand.red} />
+              <Text style={styles.deleteBtnText}>Remove Client</Text>
+            </TouchableOpacity>
+          )}
+        </ScrollView>
       </SafeAreaView>
     </Modal>
   );
 }
 
 export default function CustomersScreen() {
-  const customers = useStore((s) => s.customers);
-  const [search, setSearch] = useState('');
-  const [showAdd, setShowAdd] = useState(false);
+  const customers      = useStore((s) => s.customers);
+  const addCustomer    = useStore((s) => s.addCustomer);
+  const updateCustomer = useStore((s) => s.updateCustomer);
+  const removeCustomer = useStore((s) => s.removeCustomer);
 
-  const filtered = customers.filter(
-    (c) =>
-      search.length === 0 ||
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.email?.toLowerCase().includes(search.toLowerCase()),
-  );
+  const [search, setSearch]                   = useState('');
+  const [showAdd, setShowAdd]                 = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+
+  const filtered = customers
+    .filter(
+      (c) =>
+        search.length === 0 ||
+        c.name.toLowerCase().includes(search.toLowerCase()) ||
+        c.email?.toLowerCase().includes(search.toLowerCase()) ||
+        c.companyName?.toLowerCase().includes(search.toLowerCase()),
+    )
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  function handleAdd(form: CustomerFormState) {
+    addCustomer({
+      id: `c-${Date.now()}`,
+      name: form.name,
+      companyName: form.companyName || undefined,
+      phone:       form.phone       || undefined,
+      email:       form.email       || undefined,
+      address:     form.address     || undefined,
+      createdAt: new Date().toISOString(),
+    });
+    setShowAdd(false);
+  }
+
+  function handleEdit(form: CustomerFormState) {
+    if (!editingCustomer) return;
+    updateCustomer(editingCustomer.id, {
+      name:        form.name,
+      companyName: form.companyName || undefined,
+      phone:       form.phone       || undefined,
+      email:       form.email       || undefined,
+      address:     form.address     || undefined,
+    });
+    setEditingCustomer(null);
+  }
+
+  function handleDelete() {
+    if (!editingCustomer) return;
+    Alert.alert('Remove Client', `Remove ${editingCustomer.name}? This cannot be undone.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          removeCustomer(editingCustomer.id);
+          setEditingCustomer(null);
+        },
+      },
+    ]);
+  }
+
+  const emptyForm: CustomerFormState = { name: '', companyName: '', phone: '', email: '', address: '' };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -146,25 +219,47 @@ export default function CustomersScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
         renderItem={({ item, index }) => (
-          <View>
-            <CustomerRow item={item} />
+          <View style={[styles.card, index === 0 && { marginTop: 0 }]}>
+            <CustomerRow item={item} onPress={() => setEditingCustomer(item)} />
             {index < filtered.length - 1 && <View style={styles.separator} />}
           </View>
         )}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Ionicons name="people-outline" size={40} color={Brand.border} />
-            <Text style={styles.emptyText}>No clients yet</Text>
-            <TouchableOpacity onPress={() => setShowAdd(true)}>
-              <Text style={[styles.emptyText, { color: Brand.orange, marginTop: 4 }]}>
-                Add your first client
-              </Text>
+            <Text style={styles.emptyTitle}>No clients yet</Text>
+            <Text style={styles.emptyBody}>Save customer details here to quickly fill in quotes.</Text>
+            <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowAdd(true)}>
+              <Text style={styles.emptyBtnText}>Add first client</Text>
             </TouchableOpacity>
           </View>
         }
       />
 
-      <AddCustomerModal visible={showAdd} onClose={() => setShowAdd(false)} />
+      <CustomerModal
+        visible={showAdd}
+        initial={emptyForm}
+        title="New Client"
+        onClose={() => setShowAdd(false)}
+        onSave={handleAdd}
+      />
+
+      {editingCustomer && (
+        <CustomerModal
+          visible={true}
+          initial={{
+            name:        editingCustomer.name,
+            companyName: editingCustomer.companyName ?? '',
+            phone:       editingCustomer.phone       ?? '',
+            email:       editingCustomer.email       ?? '',
+            address:     editingCustomer.address     ?? '',
+          }}
+          title="Edit Client"
+          onClose={() => setEditingCustomer(null)}
+          onSave={handleEdit}
+          onDelete={handleDelete}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -203,13 +298,20 @@ const styles = StyleSheet.create({
   searchIcon: { marginRight: 8 },
   searchInput: { flex: 1, paddingVertical: 10, fontSize: 13, color: Brand.navy },
   listContent: { paddingHorizontal: 12, paddingBottom: 32 },
+  card: {
+    backgroundColor: Brand.white,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Brand.border,
+    overflow: 'hidden',
+    marginBottom: 2,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    backgroundColor: Brand.white,
   },
   avatar: {
     width: 40,
@@ -222,10 +324,19 @@ const styles = StyleSheet.create({
   avatarText: { color: Brand.white, fontWeight: '700', fontSize: 14 },
   rowInfo: { flex: 1 },
   rowName: { fontSize: 13, fontWeight: '600', color: Brand.navy },
-  rowSub: { fontSize: 11, color: Brand.textMuted, marginTop: 1 },
+  rowSub:  { fontSize: 11, color: Brand.textMuted, marginTop: 1 },
   separator: { height: 1, backgroundColor: Brand.borderLight, marginHorizontal: 14 },
-  empty: { alignItems: 'center', paddingTop: 60, gap: 6 },
-  emptyText: { fontSize: 14, color: Brand.textMuted },
+  empty: { alignItems: 'center', paddingTop: 60, gap: 8 },
+  emptyTitle: { fontSize: 15, fontWeight: '600', color: Brand.navy },
+  emptyBody:  { fontSize: 13, color: Brand.textMuted, textAlign: 'center', paddingHorizontal: 32 },
+  emptyBtn: {
+    marginTop: 4,
+    backgroundColor: Brand.orange,
+    borderRadius: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  emptyBtnText: { fontSize: 13, fontWeight: '700', color: Brand.white },
   modal: { flex: 1, backgroundColor: Brand.bg },
   modalHeader: {
     flexDirection: 'row',
@@ -252,4 +363,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Brand.navy,
   },
+  deleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingVertical: 13,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: Brand.red,
+  },
+  deleteBtnText: { fontSize: 14, fontWeight: '600', color: Brand.red },
 });

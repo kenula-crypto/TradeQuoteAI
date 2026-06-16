@@ -64,14 +64,16 @@ export default function QuotesScreen() {
   const [filter, setFilter] = useState<QuoteStatus | 'all'>('all');
   const [search, setSearch] = useState('');
 
-  const filtered = quotes.filter((q) => {
-    const matchFilter = filter === 'all' || q.status === filter;
-    const matchSearch =
-      search.length === 0 ||
-      q.customerName.toLowerCase().includes(search.toLowerCase()) ||
-      q.title.toLowerCase().includes(search.toLowerCase());
-    return matchFilter && matchSearch;
-  });
+  const filtered = quotes
+    .filter((q) => {
+      const matchFilter = filter === 'all' || q.status === filter;
+      const matchSearch =
+        search.length === 0 ||
+        q.customerName.toLowerCase().includes(search.toLowerCase()) ||
+        q.title.toLowerCase().includes(search.toLowerCase());
+      return matchFilter && matchSearch;
+    })
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>

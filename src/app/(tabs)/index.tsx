@@ -60,8 +60,13 @@ export default function DashboardScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>Good morning,</Text>
-          <Text style={styles.name}>{settings.ownerName} 👋</Text>
+          <Text style={styles.greeting}>{(() => {
+            const h = new Date().getHours();
+            if (h < 12) return 'Good morning,';
+            if (h < 18) return 'Good afternoon,';
+            return 'Good evening,';
+          })()}</Text>
+          <Text style={styles.name}>{settings.ownerName ? `${settings.ownerName} 👋` : 'Welcome back 👋'}</Text>
         </View>
         <TouchableOpacity
           style={styles.newBtn}
@@ -97,6 +102,21 @@ export default function DashboardScreen() {
               </View>
             </View>
 
+            {/* No employees warning */}
+            {settings.employees.length === 0 && (
+              <TouchableOpacity
+                style={styles.warningBanner}
+                activeOpacity={0.8}
+                onPress={() => router.push('/(tabs)/settings')}>
+                <Ionicons name="warning-outline" size={16} color={Brand.amberText} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.warningTitle}>Add your employees first</Text>
+                  <Text style={styles.warningBody}>Labour costs will be £0 until you add employees in Settings.</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={14} color={Brand.amberText} />
+              </TouchableOpacity>
+            )}
+
             <Text style={styles.sectionTitle}>Recent Quotes</Text>
           </>
         }
@@ -107,6 +127,18 @@ export default function DashboardScreen() {
           </View>
         )}
         ItemSeparatorComponent={null}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyEmoji}>🔨</Text>
+            <Text style={styles.emptyTitle}>No quotes yet</Text>
+            <Text style={styles.emptyBody}>Tap "New Quote" to generate your first AI-powered estimate in under 3 minutes.</Text>
+            <TouchableOpacity
+              style={styles.emptyBtn}
+              onPress={() => router.push('/quote/new')}>
+              <Text style={styles.emptyBtnText}>Create first quote</Text>
+            </TouchableOpacity>
+          </View>
+        }
         ListFooterComponent={
           quotes.length > 5 ? (
             <TouchableOpacity
@@ -258,4 +290,34 @@ const styles = StyleSheet.create({
     color: Brand.orange,
     fontWeight: '500',
   },
+  warningBanner: {
+    backgroundColor: Brand.amberLight,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Brand.amber,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 14,
+  },
+  warningTitle: { fontSize: 12, fontWeight: '700', color: Brand.amberText },
+  warningBody:  { fontSize: 11, color: Brand.amberText, marginTop: 1 },
+  emptyState: {
+    alignItems: 'center',
+    paddingTop: 40,
+    paddingHorizontal: 24,
+    gap: 8,
+  },
+  emptyEmoji: { fontSize: 48, marginBottom: 4 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: Brand.navy },
+  emptyBody:  { fontSize: 13, color: Brand.textMuted, textAlign: 'center', lineHeight: 20 },
+  emptyBtn: {
+    backgroundColor: Brand.orange,
+    borderRadius: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  emptyBtnText: { color: Brand.white, fontSize: 14, fontWeight: '700' },
 });

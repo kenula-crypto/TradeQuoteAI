@@ -42,6 +42,7 @@ export interface Quote {
   createdAt: string;
   validUntil: string;
   notes?: string;
+  aiNotes?: string;
   sentAt?: string;
   acceptedAt?: string;
   declinedAt?: string;
