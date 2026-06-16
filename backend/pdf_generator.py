@@ -10,7 +10,7 @@ BORDER = (226, 232, 240)
 WHITE  = (255, 255, 255)
 ROW_H  = 6.5
 
-# Mapping of common Unicode characters to Latin-1 safe equivalents
+# Mapping of Unicode characters outside Latin-1 to safe equivalents
 _UNICODE_MAP = {
     '–': '-',    # en dash
     '—': '-',    # em dash
@@ -22,6 +22,15 @@ _UNICODE_MAP = {
     ' ': ' ',    # non-breaking space
     '•': '*',    # bullet
     '·': '*',    # middle dot
+    '€': 'EUR',  # euro sign
+    '®': '(R)',   # registered trademark
+    '™': '(TM)', # trademark
+    '©': '(C)',  # copyright
+    '×': 'x',    # multiplication sign
+    '½': '1/2',  # one half
+    '¼': '1/4',  # one quarter
+    '¾': '3/4',  # three quarters
+    '°': 'deg',  # degree sign
 }
 
 def _s(text) -> str:

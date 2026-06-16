@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import uuid
 
@@ -6,11 +7,25 @@ import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
-load_dotenv()
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
+
+load_dotenv(override=True)
 
 app = Flask(__name__)
-CORS(app)
+
+_allowed_origins = os.environ.get("ALLOWED_ORIGINS", "")
+CORS(app, origins=_allowed_origins.split(",") if _allowed_origins else "*")
+
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["500 per day", "100 per hour"],
+    storage_uri="memory://",
+)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -108,6 +123,7 @@ def health():
 
 
 @app.route("/quotes/generate", methods=["POST"])
+@limiter.limit("10 per minute; 50 per hour")
 def generate_quote():
     if not GROQ_API_KEY:
         return jsonify({"error": "GROQ_API_KEY not set in .env"}), 500
@@ -135,11 +151,11 @@ def generate_quote():
 
     try:
         resp = requests.post(GROQ_URL, json=groq_payload, headers=headers, timeout=30)
-        print(f"[Groq] Status: {resp.status_code}")
-        print(f"[Groq] Response: {resp.text[:500]}")
+        logger.info("[Groq] Status: %s", resp.status_code)
+        logger.debug("[Groq] Response: %s", resp.text[:500])
         resp.raise_for_status()
     except requests.RequestException as e:
-        print(f"[Groq] Error: {str(e)}")
+        logger.error("[Groq] Error: %s", e)
         return jsonify({"error": f"Groq API request failed: {str(e)}"}), 502
 
     try:
@@ -180,6 +196,138 @@ def generate_quote():
         "ai_notes": ai_result.get("ai_notes"),
         **totals,
     })
+
+
+def _stripe():
+    import stripe as _s
+    _s.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+    return _s
+
+
+@app.route("/billing/checkout", methods=["POST"])
+def billing_checkout():
+    stripe = _stripe()
+    data = request.get_json() or {}
+    user_id    = data.get("userId", "")
+    email      = data.get("email", "")
+    price_id   = data.get("priceId", "")
+    success_url = data.get("successUrl", "https://kaastech.co.uk")
+    cancel_url  = data.get("cancelUrl", "https://kaastech.co.uk")
+
+    try:
+        customers = stripe.Customer.list(email=email, limit=1)
+        customer  = customers.data[0] if customers.data else stripe.Customer.create(
+            email=email, metadata={"user_id": user_id}
+        )
+        session = stripe.checkout.Session.create(
+            customer=customer.id,
+            payment_method_types=["card"],
+            line_items=[{"price": price_id, "quantity": 1}],
+            mode="subscription",
+            success_url=success_url,
+            cancel_url=cancel_url,
+            client_reference_id=user_id,
+        )
+        return jsonify({"url": session.url, "customerId": customer.id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/billing/portal", methods=["POST"])
+def billing_portal():
+    stripe = _stripe()
+    data        = request.get_json() or {}
+    customer_id = data.get("customerId", "")
+    return_url  = data.get("returnUrl", "https://kaastech.co.uk")
+    try:
+        session = stripe.billing_portal.Session.create(
+            customer=customer_id, return_url=return_url
+        )
+        return jsonify({"url": session.url})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/billing/status", methods=["GET"])
+def billing_status():
+    stripe = _stripe()
+    email  = request.args.get("email", "")
+    if not email:
+        return jsonify({"tier": "free", "active": False})
+    try:
+        customers = stripe.Customer.list(email=email, limit=1)
+        if not customers.data:
+            return jsonify({"tier": "free", "active": False})
+        customer_id = customers.data[0].id
+        subs = stripe.Subscription.list(customer=customer_id, status="active", limit=1)
+        if not subs.data:
+            return jsonify({"tier": "free", "active": False})
+        price_id = subs.data[0].items.data[0].price.id
+        pro_id   = os.environ.get("STRIPE_PRO_PRICE_ID",  "")
+        team_id  = os.environ.get("STRIPE_TEAM_PRICE_ID", "")
+        tier = "team" if price_id == team_id else "pro" if price_id == pro_id else "free"
+        return jsonify({"tier": tier, "active": True})
+    except Exception as e:
+        return jsonify({"error": str(e), "tier": "free", "active": False})
+
+
+@app.route("/billing/webhook", methods=["POST"])
+def billing_webhook():
+    stripe = _stripe()
+    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+    payload        = request.get_data()
+    sig_header     = request.headers.get("Stripe-Signature", "")
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
+    except stripe.error.SignatureVerificationError:
+        return jsonify({"error": "Invalid signature"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+    event_type = event["type"]
+    data       = event["data"]["object"]
+
+    # Update Supabase profile with subscription status
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+
+    if supabase_url and supabase_key and event_type in (
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+    ):
+        try:
+            customer_id = data.get("customer")
+            status      = data.get("status")
+            price_id    = ""
+            items       = data.get("items", {}).get("data", [])
+            if items:
+                price_id = items[0].get("price", {}).get("id", "")
+
+            pro_id  = os.environ.get("STRIPE_PRO_PRICE_ID",  "")
+            team_id = os.environ.get("STRIPE_TEAM_PRICE_ID", "")
+            if status == "active":
+                tier = "team" if price_id == team_id else "pro" if price_id == pro_id else "free"
+            else:
+                tier = "free"
+
+            requests.patch(
+                f"{supabase_url}/rest/v1/profiles",
+                params={"stripe_customer_id": f"eq.{customer_id}"},
+                json={"subscription_tier": tier},
+                headers={
+                    "apikey": supabase_key,
+                    "Authorization": f"Bearer {supabase_key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                timeout=10,
+            )
+        except Exception as e:
+            logger.error("[Webhook] Supabase update error: %s", e)
+
+    return jsonify({"received": True})
 
 
 @app.route("/quotes/draft-email", methods=["POST"])
@@ -257,7 +405,7 @@ Return ONLY valid JSON with no markdown: {{"subject": "...", "body": "..."}}"""
         })
 
     except Exception as e:
-        print(f"[EmailDraft] Error: {traceback.format_exc()}")
+        logger.error("[EmailDraft] Error: %s", traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 
@@ -274,7 +422,7 @@ def generate_pdf():
         from pdf_generator import generate_quote_pdf
         pdf_b64 = generate_quote_pdf(quote, settings)
     except Exception as e:
-        print(f"[PDF] Error: {e}")
+        logger.error("[PDF] Error: %s", e)
         return jsonify({"error": f"PDF generation failed: {str(e)}"}), 500
 
     filename = f"{quote.get('quoteNumber', 'quote')}.pdf"
@@ -282,4 +430,5 @@ def generate_pdf():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), debug=debug)
